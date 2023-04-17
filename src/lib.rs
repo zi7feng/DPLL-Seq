@@ -118,7 +118,6 @@ impl Node {
 
 fn simplify_formula(formula: &Vec<Vec<i32>>, assignment: &HashMap<i32, Option<bool>>) -> Vec<Vec<i32>> {
     let mut new_formula = Vec::new();
-
     for clause in formula.iter() {
         let mut satisfied = false;
         for &lit in clause.iter() {
@@ -141,7 +140,6 @@ fn simplify_formula(formula: &Vec<Vec<i32>>, assignment: &HashMap<i32, Option<bo
             new_formula.push(clause.clone());
         }
     }
-
     new_formula
 }
 
@@ -189,11 +187,13 @@ fn false_check(node: &Rc<Node>) -> i32 {
                     false_num += 1;
                 }
             }
+
         }
         // One clause is false
         if false_num == lit_num {
             return 0;
         }
+
         if true_flag {
             true_num += 1;
         }
@@ -245,7 +245,7 @@ pub fn build_search_tree(node: Rc<Node>, tasklist: &mut Vec<Rc<Node>>) -> bool {
             assignment: node.assignment.clone(),
         });
         add_task(node_f, tasklist);
-        build_search_tree(node_t, tasklist);
+        return build_search_tree(node_t, tasklist);
     } else if false_check(&node) == 0 {
         return false;
     } else if false_check(&node) == 2 {
@@ -262,10 +262,13 @@ pub fn build_search_tree(node: Rc<Node>, tasklist: &mut Vec<Rc<Node>>) -> bool {
         // find a solution
         return true;
     } else {
-        let new_formula = simplify_formula(&node.formula, &node.assignment);
-        let unassigned_var = get_assignment_keys(&node.assignment);
+        // let new_formula = simplify_formula(&node.formula, &node.assignment);
+        // println!("formula of Node {}:{} is: {:?}",node.variable, node.value.unwrap(),new_formula.clone());
+
         let mut new_assignment = node.assignment.clone();
         new_assignment.insert(node.variable, node.value);
+        let new_formula = simplify_formula(&node.formula, &new_assignment);
+        let unassigned_var = get_assignment_keys(&new_assignment);
         let node_t = Rc::new(Node {
             formula: new_formula.clone(),
             value: Some(true),
@@ -278,10 +281,10 @@ pub fn build_search_tree(node: Rc<Node>, tasklist: &mut Vec<Rc<Node>>) -> bool {
             variable: unassigned_var[0],
             assignment: new_assignment.clone(),
         });
+        // println!("node_f {}:{} ass: {:?}", node_f.variable, node_f.value.unwrap(), node_f.assignment);
         add_task(node_f, tasklist);
-        build_search_tree(node_t, tasklist);
+        return build_search_tree(node_t, tasklist);
     }
-    false
 }
 
 
@@ -291,10 +294,10 @@ mod tests {
     use std::mem::transmute;
     use super::*;
     use maplit::hashmap;
-
+    //
     // #[test]
     // fn test_read_cnf_file() {
-    //     let path = "testcnf.cnf";
+    //     let path = "500250.cnf";
     //     let expected = vec![
     //         vec![50, 136, 36],
     //         vec![-250, -113, 17],
@@ -422,5 +425,8 @@ mod tests {
         let keys = get_assignment_keys(&assignment);
         assert_eq!(keys, vec![1, 2, 3]);
     }
+
+
+
 
 }
