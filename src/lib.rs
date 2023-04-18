@@ -1,3 +1,4 @@
+use std::collections::btree_map::BTreeMap;
 use std::collections::HashMap;
 use std::fs::File;
 use std::hash::Hash;
@@ -64,7 +65,7 @@ pub fn pure_literal_elimination(formula: &Vec<Vec<i32>>, assignment: &mut HashMa
     for clause in formula.iter() {
         for &lit in clause.iter() {
             let key = lit.abs();
-            if !removed_literals.contains_key(&key) && !removed_literals.contains_key(&-key) {
+            if !removed_literals.contains_key(&key) && !removed_literals.contains_key(&-key) && assignment.get(&key).is_none() {
                 // First occurrence of the literal in the formula
                 if !pure_literals.contains_key(&key) && !pure_literals.contains_key(&-key) {
                     pure_literals.insert(lit, lit > 0);
@@ -86,7 +87,7 @@ pub fn pure_literal_elimination(formula: &Vec<Vec<i32>>, assignment: &mut HashMa
 
     // Simplify the formula with new assignment
     new_formula = simplify_formula(formula, assignment);
-
+    // println!("new formula len = {}", new_formula.len());
     new_formula
 }
 
@@ -116,7 +117,7 @@ impl Node {
     }
 }
 
-fn simplify_formula(formula: &Vec<Vec<i32>>, assignment: &HashMap<i32, Option<bool>>) -> Vec<Vec<i32>> {
+fn simplify_formula(formula: &Vec<Vec<i32>>, assignment: &mut HashMap<i32, Option<bool>>) -> Vec<Vec<i32>> {
     let mut new_formula = Vec::new();
     for clause in formula.iter() {
         let mut satisfied = false;
@@ -140,6 +141,26 @@ fn simplify_formula(formula: &Vec<Vec<i32>>, assignment: &HashMap<i32, Option<bo
             new_formula.push(clause.clone());
         }
     }
+    // println!("new formula len = {}", new_formula.len());
+    // if new_formula.len() == 170 {
+    //     println!("{:?}", new_formula);
+    // }
+    let mut unassigned_var = Vec::new();
+    unassigned_var = get_assignment_keys(&assignment);
+
+    let mut var_in_formula = Vec::new();
+    for clause in new_formula.iter() {
+        for &lit in clause.iter() {
+            var_in_formula.push(lit);
+        }
+    }
+
+    for var in unassigned_var.iter() {
+        if !var_in_formula.contains(var) {
+            assignment.insert(*var, Some(true));
+        }
+    }
+
     new_formula
 }
 
@@ -225,6 +246,7 @@ fn get_assignment_keys(assignment: &HashMap<i32, Option<bool>>) -> Vec<i32> {
         .map(|(&key, _)| key)
         .collect::<Vec<_>>();
     keys.sort_unstable();
+    // println!("unassignment keys number = {}", keys.len());
     keys
 }
 
@@ -256,8 +278,9 @@ pub fn build_search_tree(node: Rc<Node>, tasklist: &mut Vec<Rc<Node>>) -> bool {
                 *val = Some(true);
             }
         }
-        for (key, value) in solution {
-            println!("{}: {:?}", key, value);
+        let sorted_map: BTreeMap<_, _> = solution.into_iter().collect();
+        for (key, value) in sorted_map {
+            println!("{}: {}", key, value.unwrap());
         }
         // find a solution
         return true;
@@ -266,9 +289,33 @@ pub fn build_search_tree(node: Rc<Node>, tasklist: &mut Vec<Rc<Node>>) -> bool {
         // println!("formula of Node {}:{} is: {:?}",node.variable, node.value.unwrap(),new_formula.clone());
 
         let mut new_assignment = node.assignment.clone();
+        // println!("{:?}", new_assignment);
+        // println!("{}{}", node.variable, node.value.unwrap());
         new_assignment.insert(node.variable, node.value);
-        let new_formula = simplify_formula(&node.formula, &new_assignment);
+        let mut new_formula = simplify_formula(&node.formula, &mut new_assignment);
+        let (result, mut new_formula, mut new_assignment) = unit_propagation(new_formula, &mut new_assignment);
+        let mut pre_formula: Vec<Vec<i32>> = Vec::new();
+        while pre_formula != new_formula.clone() {
+            pre_formula = new_formula.clone();
+            new_formula = pure_literal_elimination(&new_formula, &mut new_assignment);
+            // println!("new formula = {:?}", new_formula);
+            // println!("pre formula = {:?}", pre_formula);
+
+        }
+        if result == 0 {
+            return false;
+        } else if result == 2 {
+            let sorted_map: BTreeMap<_, _> = new_assignment.into_iter().collect();
+            for (key, value) in sorted_map {
+                println!("{}: {}", key, value.unwrap());
+            }
+            return true;
+        }
         let unassigned_var = get_assignment_keys(&new_assignment);
+        if unassigned_var.is_empty() && !new_formula.is_empty() {
+            return false;
+        }
+
         let node_t = Rc::new(Node {
             formula: new_formula.clone(),
             value: Some(true),
@@ -285,6 +332,60 @@ pub fn build_search_tree(node: Rc<Node>, tasklist: &mut Vec<Rc<Node>>) -> bool {
         add_task(node_f, tasklist);
         return build_search_tree(node_t, tasklist);
     }
+}
+
+// Perform unit propagation on the formula
+pub fn unit_propagation(mut formula: Vec<Vec<i32>>, assignment: &mut HashMap<i32, Option<bool>>) -> (i32, Vec<Vec<i32>>, HashMap<i32, Option<bool>>) {
+    let mut new_assignment: HashMap<i32, Option<bool>> = HashMap::new();
+    loop {
+        let mut unit_clause: Option<Vec<i32>> = None;
+        for clause in formula.iter() {
+            let mut unassigned_count = 0;
+            let mut unassigned_literal:i32 = 0;
+            for &lit in clause.iter() {
+                if assignment.contains_key(&lit.abs()) && assignment[&lit.abs()].is_some() {
+                    continue;
+                } else {
+                    unassigned_count += 1;
+                    unassigned_literal = lit;
+                }
+            }
+            if unassigned_count == 1 {
+                // The clause is a unit clause
+                unit_clause = Some(clause.clone());
+                // println!("unassigned_lit = {}", unassigned_literal);
+                if new_assignment.contains_key(&unassigned_literal.abs()) && new_assignment.get(&unassigned_literal.abs()) != Some(&Some(unassigned_literal>0)) {
+                    // println!("false formula = {:?}", formula.clone());
+                    return (0, formula, assignment.clone());
+                }
+                new_assignment.insert(unassigned_literal.abs(), Some(unassigned_literal > 0));
+                // break;
+            }
+        }
+        if let Some(clause) = unit_clause {
+            // Remove the unit clause from the formula
+            formula.retain(|c| c != &clause);
+            // Simplify the formula with the new assignment
+            formula = simplify_formula(&formula, &mut new_assignment);
+            // Update the current assignment with the new assignment
+            for (key, val) in new_assignment.iter() {
+                assignment.insert(*key, *val);
+            }
+            new_assignment.clear();
+        } else {
+            // No more unit clauses can be found
+            break;
+        }
+    }
+    if formula.len() == 0 {
+        return (2, formula, assignment.clone());
+    }
+    // println!("{}, \
+    // {:?}, \
+    // {:?}",true, formula, assignment.clone());
+
+    (1, formula, assignment.clone())
+
 }
 
 
